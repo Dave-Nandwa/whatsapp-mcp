@@ -9,6 +9,7 @@ from pydantic import Field
 
 import media_preview
 import transcription
+import whatsapp as wa
 from mcp_config import resolve_host, resolve_port, resolve_transport
 from parent_watchdog import install_stdio_parent_watchdog
 from whatsapp import (
@@ -235,6 +236,7 @@ def list_chats(
     page: int = 0,
     include_last_message: bool = True,
     sort_by: str = "last_active",
+    label: str | None = None,
 ) -> list[dict[str, Any]]:
     """Get WhatsApp chats matching specified criteria.
 
@@ -244,6 +246,9 @@ def list_chats(
         page: Page number for pagination (default 0)
         include_last_message: Include the last message in each chat (default True)
         sort_by: "last_active" (default, most recent first) or "name" (alphabetical)
+        label: Only return chats with this label / WhatsApp List (label ID or name,
+               case-insensitive) that have stored messages. For every chat in a
+               List, use list_label_chats.
 
     Returns:
         Chat dictionaries with jid, name, is_group, last_message_time, last_message,
@@ -252,12 +257,18 @@ def list_chats(
         is true when the last message is inbound and newer than that marker, so chats
         already read on the phone are not reported as unread. Numeric fallback names
         are resolved from local contacts when possible, even while the bridge is offline.
+        Each chat also has `labels`: names of the labels / Lists it belongs to.
     """
     # Cap limit at 200 to prevent excessive queries
     limit = max(1, min(limit, 200))
     page = max(0, page)
     chats = whatsapp_list_chats(
-        query=query, limit=limit, page=page, include_last_message=include_last_message, sort_by=sort_by
+        query=query,
+        limit=limit,
+        page=page,
+        include_last_message=include_last_message,
+        sort_by=sort_by,
+        label=label,
     )
     return chats
 
@@ -271,7 +282,7 @@ def get_chat(chat_jid: str, include_last_message: bool = True) -> dict[str, Any]
         include_last_message: Whether to include the last message (default True)
 
     Returns:
-        Chat dictionary — same shape as list_chats, including last_read_time and unread.
+        Chat dictionary — same shape as list_chats, including last_read_time, unread and labels.
     """
     chat = whatsapp_get_chat(chat_jid, include_last_message)
     return chat
@@ -592,6 +603,138 @@ def transcribe_audio(message_id: str, chat_jid: str, force: bool = False) -> dic
         "message": "Transcribed",
         "transcript": f"{transcription.label(model, provider)}{text}",
     }
+
+
+# --- Chat labels / Lists -----------------------------------------------------
+
+
+def _label_result(ok: bool, body: dict[str, Any] | str) -> dict[str, Any]:
+    if ok:
+        return {"success": True, **{k: v for k, v in body.items() if k != "success"}}
+    return {"success": False, "message": body}
+
+
+@mcp.tool()
+def list_labels() -> list[dict[str, Any]]:
+    """List chat labels (WhatsApp Business labels / personal WhatsApp Lists).
+
+    Read from the local store. If this is empty or out of date, call sync_labels.
+
+    Returns:
+        Labels with id, name, color (palette index 0-19), type (e.g. CUSTOM,
+        FAVORITES, UNREAD, GROUPS; null on older Business labels), built_in
+        (true for WhatsApp's own lists, which can't be renamed or deleted) and
+        chat_count. Use list_label_chats to see a label's chats.
+    """
+    return wa.list_labels()
+
+
+@mcp.tool()
+def list_label_chats(label: str) -> dict[str, Any]:
+    """List every chat in a label / WhatsApp List.
+
+    Unlike list_chats(label=...), this includes chats with no stored messages
+    (often groups), so it matches what the phone shows in that List.
+
+    Args:
+        label: Label ID or name (case-insensitive)
+
+    Returns:
+        The label and its chats (jid, name, is_group, last_message_time,
+        has_stored_messages), most recently active first.
+    """
+    found = wa.resolve_label(label)
+    if not found:
+        return {"success": False, "message": f"No label {label!r}; see list_labels or run sync_labels"}
+    return {"success": True, "label": found, "chats": wa.list_label_chats(found["id"])}
+
+
+@mcp.tool()
+def sync_labels() -> dict[str, Any]:
+    """Re-download every label and chat assignment from WhatsApp.
+
+    Labels made on the phone arrive automatically while the bridge runs; use this
+    once after upgrading, or if list_labels looks stale. Requires the bridge.
+
+    If the result has `pending: true`, WhatsApp's server copy failed verification
+    and the phone was asked to resend it; call list_labels again in ~a minute.
+    """
+    return _label_result(*wa.sync_labels())
+
+
+@mcp.tool()
+def create_label(name: str, color: int | None = None) -> dict[str, Any]:
+    """Create a new chat label / WhatsApp List. Syncs to the phone and other devices.
+
+    Args:
+        name: Label name, e.g. "Leads" or "Follow up"
+        color: Optional palette index 0-19 (picked automatically if omitted)
+
+    Returns:
+        success, label_id, name and color.
+    """
+    name = (name or "").strip()
+    if not name:
+        return {"success": False, "message": "name is required"}
+    if wa.resolve_label(name):
+        return {"success": False, "message": f"A label named {name!r} already exists"}
+    return _label_result(*wa.create_label(name, color))
+
+
+@mcp.tool()
+def update_label(label: str, new_name: str | None = None, color: int | None = None) -> dict[str, Any]:
+    """Rename a label and/or change its colour.
+
+    Args:
+        label: Label ID or current name
+        new_name: New name (optional)
+        color: New palette index 0-19 (optional)
+    """
+    found = wa.resolve_label(label)
+    if not found:
+        return {"success": False, "message": f"No label {label!r}; see list_labels or run sync_labels"}
+    return _label_result(*wa.update_label(found["id"], (new_name or "").strip() or None, color))
+
+
+@mcp.tool()
+def delete_label(label: str) -> dict[str, Any]:
+    """Delete a label. Chats keep their messages; they just lose this label.
+
+    Args:
+        label: Label ID or name
+    """
+    found = wa.resolve_label(label)
+    if not found:
+        return {"success": False, "message": f"No label {label!r}; see list_labels or run sync_labels"}
+    return _label_result(*wa.delete_label(found["id"]))
+
+
+@mcp.tool()
+def label_chat(chat_jid: str, label: str) -> dict[str, Any]:
+    """Add a chat to a label / WhatsApp List.
+
+    Args:
+        chat_jid: Chat JID (e.g. "12025551234@s.whatsapp.net" or "123456789@g.us")
+        label: Label ID or name (create it first with create_label if needed)
+    """
+    found = wa.resolve_label(label)
+    if not found:
+        return {"success": False, "message": f"No label {label!r}; create it with create_label"}
+    return _label_result(*wa.set_chat_label(chat_jid, found["id"], True))
+
+
+@mcp.tool()
+def unlabel_chat(chat_jid: str, label: str) -> dict[str, Any]:
+    """Remove a chat from a label / WhatsApp List.
+
+    Args:
+        chat_jid: Chat JID
+        label: Label ID or name
+    """
+    found = wa.resolve_label(label)
+    if not found:
+        return {"success": False, "message": f"No label {label!r}; see list_labels"}
+    return _label_result(*wa.set_chat_label(chat_jid, found["id"], False))
 
 
 def shutdown_handler(signum, frame):

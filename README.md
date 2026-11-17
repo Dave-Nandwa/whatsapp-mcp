@@ -24,6 +24,7 @@ A Model Context Protocol (MCP) server for WhatsApp, enabling Claude to read and 
 - **Send Messages**: Send text messages to individuals or groups
 - **Read Receipts**: Explicitly mark selected messages as read across linked devices
 - **Media Support**: Send and download images, videos, documents, and voice messages
+- **Chat Labels / Lists**: List, create, rename and delete WhatsApp Lists (personal) or labels (Business), and add or remove chats — synced with your phone
 - **Call History**: Capture incoming voice/video calls into a local SQLite table (live, 1:1 and group)
 - **Webhook Integration**: Forward incoming messages to external services
 - **Local Storage**: All messages stored locally in SQLite - only sent to Claude when you allow it
@@ -398,7 +399,8 @@ All chat tools (`list_chats`, `get_chat`, `get_direct_chat_by_contact`,
   "last_sender": "1234567890",         // null when include_last_message=false
   "last_is_from_me": false,
   "last_read_time": "2024-01-15T09:00:00+00:00", // how far the chat is read
-  "unread": true                       // last message is inbound and unread
+  "unread": true,                      // last message is inbound and unread
+  "labels": ["Investors", "P1 Chats"]  // Lists/labels the chat belongs to (list_chats, get_chat)
 }
 ```
 
@@ -428,6 +430,7 @@ List all chats with metadata.
 **Parameters:**
 
 - `limit` (optional): Number of chats (default 50, max 200)
+- `label` (optional): Only chats in this List/label (ID or name) that have stored messages. Use `list_label_chats` for every chat in a List.
 
 #### `get_chat`
 
@@ -471,6 +474,43 @@ Get messages around a specific message for context.
 - `chat_jid` (required): JID of the chat
 - `before` (optional): Number of messages before (default 5)
 - `after` (optional): Number of messages after (default 5)
+
+### Chat Labels (WhatsApp Lists)
+
+Personal WhatsApp **Lists** (Favourites, Unread, Groups and your custom Lists)
+and WhatsApp Business **labels** are the same feature under the hood, so these
+tools work with both. Changes sync both ways: Lists you edit on the phone reach
+the bridge while it's running, and changes made here show up on the phone. A
+chat in a List is private to you; nobody is notified.
+
+| Tool | What it does |
+|------|--------------|
+| `list_labels` | All Lists/labels with `id`, `name`, `color` (0-19), `type` (`CUSTOM`, `FAVORITES`, `UNREAD`, `GROUPS`, …), `built_in` and `chat_count` |
+| `list_label_chats(label)` | Every chat in a List, including chats with no stored messages (common for groups) |
+| `create_label(name, color?)` | Create a List |
+| `update_label(label, new_name?, color?)` | Rename and/or recolour a List |
+| `delete_label(label)` | Delete a List (chats and messages are untouched) |
+| `label_chat(chat_jid, label)` / `unlabel_chat(chat_jid, label)` | Add a chat to a List or remove it |
+| `sync_labels()` | Re-download all Lists and chat assignments from WhatsApp |
+
+`label` arguments accept a List's ID or its name (case-insensitive).
+
+**First run on an already-paired bridge: call `sync_labels` once.** Existing
+Lists are only sent during a full sync, which normally happens at pair time,
+before older bridges knew to store them. If WhatsApp's server copy fails
+verification (`mismatching LTHash`, seen on long-lived personal accounts), the
+bridge asks your phone to resend it instead and returns `pending: true`. Keep
+the phone online. The Lists usually arrive within seconds. Re-pairing isn't
+needed.
+
+Caveats:
+
+- **Built-in Lists** (Favourites, Unread, Groups) can't be renamed or deleted.
+  The phone fills Unread and Groups automatically, so they show no assigned chats.
+- **Lists and WhatsApp Desktop:** the Mac App Store app may not show Lists.
+  Check on the phone if a List seems missing.
+- Writes require the bridge to be connected. Reads come from `messages.db`
+  (`labels`, `chat_labels` tables) and work offline.
 
 ## Configuration
 
@@ -944,14 +984,16 @@ flowchart LR
         REACT["/api/react"]
         TYPE["/api/typing"]
         HIST["/api/history"]
+        LABELS["/api/labels*"]
         HEALTH["/api/health"]
     end
 
-    subgraph MCPTools["MCP Tools (15 total)"]
+    subgraph MCPTools["MCP Tools (25 total)"]
         direction TB
         CONT["Contact Tools<br/>search_contacts, get_contact"]
         MSG["Message Tools<br/>list_messages, send_message, etc."]
         CHAT["Chat Tools<br/>list_chats, get_chat, etc."]
+        LBL["Label Tools<br/>list_labels, label_chat, etc."]
         MEDIA["Media Tools<br/>send_file, download_media, etc."]
     end
 

@@ -755,8 +755,12 @@ def list_chats(
     page: int = 0,
     include_last_message: bool = True,
     sort_by: str = "last_active",
+    label: str | None = None,
 ) -> list[dict[str, Any]]:
     """Get chats matching the specified criteria.
+
+    `label` restricts results to chats carrying that label/list (ID or
+    case-insensitive name).
 
     Returns:
         List of chat dictionaries with jid, name, is_group, last_message, etc.
@@ -817,6 +821,15 @@ def list_chats(
             )
             params.extend([query, query, f"%{query}%"])
 
+        if label:
+            found = resolve_label(label)  # handles IDs, case and bidi marks
+            if not found:
+                return []
+            where_clauses.append(
+                "EXISTS (SELECT 1 FROM chat_labels cl WHERE cl.chat_jid = chats.jid AND cl.label_id = ?)"
+            )
+            params.append(found["id"])
+
         if where_clauses:
             query_parts.append("WHERE " + " AND ".join(where_clauses))
 
@@ -846,6 +859,10 @@ def list_chats(
                 last_read_time=datetime.fromisoformat(chat_data[6]) if chat_data[6] else None,
             )
             result.append(chat_to_dict(chat))
+
+        chat_labels = _labels_for_chats(cursor, [c["jid"] for c in result])
+        for c in result:
+            c["labels"] = chat_labels.get(c["jid"], [])
 
         return result
 
@@ -1099,7 +1116,9 @@ def get_chat(chat_jid: str, include_last_message: bool = True) -> dict[str, Any]
             last_is_from_me=chat_data[5],
             last_read_time=datetime.fromisoformat(chat_data[6]) if chat_data[6] else None,
         )
-        return chat_to_dict(chat)
+        result = chat_to_dict(chat)
+        result["labels"] = _labels_for_chats(cursor, [chat.jid]).get(chat.jid, [])
+        return result
 
     except sqlite3.Error as e:
         print(f"Database error: {e}")
@@ -1423,3 +1442,186 @@ def download_media(message_id: str, chat_jid: str) -> str | None:
     except Exception as e:
         print(f"Unexpected error: {str(e)}")
         return None
+
+
+# --- Chat labels -----------------------------------------------------------
+#
+# WhatsApp Business labels and personal WhatsApp "Lists" share one mechanism.
+# The bridge mirrors them into messages.db (labels, chat_labels); reads come
+# from there, writes go through the bridge's /api/labels endpoints.
+
+
+def _has_label_tables(cursor: sqlite3.Cursor) -> bool:
+    """Whether messages.db has the label tables (bridges predating labels don't)."""
+    rows = cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('labels', 'chat_labels')"
+    ).fetchall()
+    return len(rows) == 2
+
+
+# Phones prefix built-in list names ("Unread", "Groups") with bidi marks.
+_BIDI_MARKS = dict.fromkeys(map(ord, "\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"))
+
+
+def _clean_label_name(name: str | None) -> str:
+    return (name or "").translate(_BIDI_MARKS).strip()
+
+
+def _is_built_in_label(list_type: str | None, is_immutable: Any) -> bool:
+    """WhatsApp's own lists (Favourites, Unread, Groups...). predefined_id is not
+    used: phones send predefined_id=0 on custom lists too. Mirrors the bridge."""
+    return bool(is_immutable) or (list_type or "NONE") not in ("NONE", "CUSTOM")
+
+
+def _label_to_dict(row: tuple) -> dict[str, Any]:
+    label_id, name, color, list_type, _predefined_id, is_immutable, chat_count = row
+    return {
+        "id": label_id,
+        "name": _clean_label_name(name),
+        "color": color or 0,
+        "type": list_type,
+        "built_in": _is_built_in_label(list_type, is_immutable),
+        "chat_count": chat_count,
+    }
+
+
+_LABEL_SELECT = """
+    SELECT l.id, l.name, l.color, l.list_type, l.predefined_id, l.is_immutable,
+           (SELECT COUNT(*) FROM chat_labels cl WHERE cl.label_id = l.id) AS chat_count
+    FROM labels l
+"""
+
+
+def list_labels() -> list[dict[str, Any]]:
+    """Return all known labels/lists with their chat counts, in WhatsApp's order."""
+    try:
+        conn = _connect_messages_db()
+        cursor = conn.cursor()
+        if not _has_label_tables(cursor):
+            return []
+        cursor.execute(_LABEL_SELECT + " ORDER BY COALESCE(l.order_index, 2147483647), CAST(l.id AS INTEGER)")
+        return [_label_to_dict(row) for row in cursor.fetchall()]
+    except sqlite3.Error as e:
+        print(f"Database error: {e}")
+        return []
+    finally:
+        if "conn" in locals():
+            conn.close()
+
+
+def resolve_label(label: str) -> dict[str, Any] | None:
+    """Find a label by exact ID, else by case-insensitive name."""
+    label = (label or "").strip()
+    if not label:
+        return None
+    labels = list_labels()
+    for item in labels:
+        if item["id"] == label:
+            return item
+    folded = _clean_label_name(label).casefold()
+    for item in labels:
+        if item["name"].casefold() == folded:
+            return item
+    return None
+
+
+def list_label_chats(label_id: str) -> list[dict[str, Any]]:
+    """Every chat assigned to a label, including chats with no stored messages
+    (common for groups), with display names resolved where possible."""
+    try:
+        conn = _connect_messages_db()
+        cursor = conn.cursor()
+        if not _has_label_tables(cursor):
+            return []
+        cursor.execute(
+            """SELECT cl.chat_jid, c.name, c.last_message_time
+               FROM chat_labels cl LEFT JOIN chats c ON c.jid = cl.chat_jid
+               WHERE cl.label_id = ?
+               ORDER BY c.last_message_time IS NULL, c.last_message_time DESC, cl.chat_jid""",
+            (label_id,),
+        )
+        return [
+            {
+                "jid": jid,
+                "name": _display_chat_name(jid, name),
+                "is_group": jid.endswith("@g.us"),
+                "last_message_time": last_time,
+                "has_stored_messages": last_time is not None,
+            }
+            for jid, name, last_time in cursor.fetchall()
+        ]
+    except sqlite3.Error as e:
+        print(f"Database error: {e}")
+        return []
+    finally:
+        if "conn" in locals():
+            conn.close()
+
+
+def _labels_for_chats(cursor: sqlite3.Cursor, jids: list[str]) -> dict[str, list[str]]:
+    """Map chat JID -> label names for the given chats (one query)."""
+    if not jids or not _has_label_tables(cursor):
+        return {}
+    placeholders = ",".join("?" for _ in jids)
+    cursor.execute(
+        f"""SELECT cl.chat_jid, l.name FROM chat_labels cl JOIN labels l ON l.id = cl.label_id
+            WHERE cl.chat_jid IN ({placeholders})
+            ORDER BY COALESCE(l.order_index, 2147483647), CAST(l.id AS INTEGER)""",
+        tuple(jids),
+    )
+    out: dict[str, list[str]] = {}
+    for jid, name in cursor.fetchall():
+        out.setdefault(jid, []).append(_clean_label_name(name))
+    return out
+
+
+def _bridge_post(path: str, payload: dict[str, Any], timeout: float = 30) -> tuple[bool, dict[str, Any] | str]:
+    """POST to the bridge, returning (ok, json_body) or (False, error message)."""
+    try:
+        response = requests.post(
+            f"{WHATSAPP_API_BASE_URL}{path}", json=payload, headers=_bridge_headers(), timeout=timeout
+        )
+    except requests.RequestException as e:
+        return False, f"Request error: {e}"
+    try:
+        body = response.json()
+    except ValueError:
+        if response.status_code == 404:
+            # Plain-text 404 = route missing: the running bridge predates labels.
+            return False, (
+                "The running WhatsApp bridge does not support labels. Rebuild it "
+                "(cd whatsapp-bridge && go build -o whatsapp-bridge .) and restart it."
+            )
+        return False, f"Error: HTTP {response.status_code} - {response.text}"
+    if response.status_code == 200 and body.get("success"):
+        return True, body
+    return False, body.get("message") or f"Error: HTTP {response.status_code}"
+
+
+def sync_labels() -> tuple[bool, dict[str, Any] | str]:
+    """Ask the bridge to re-download all labels and chat assignments from WhatsApp."""
+    return _bridge_post("/labels/sync", {}, timeout=150)
+
+
+def create_label(name: str, color: int | None = None) -> tuple[bool, dict[str, Any] | str]:
+    payload: dict[str, Any] = {"action": "create", "name": name}
+    if color is not None:
+        payload["color"] = color
+    return _bridge_post("/labels", payload)
+
+
+def update_label(label_id: str, name: str | None = None, color: int | None = None) -> tuple[bool, dict[str, Any] | str]:
+    payload: dict[str, Any] = {"action": "update", "label_id": label_id}
+    if name:
+        payload["name"] = name
+    if color is not None:
+        payload["color"] = color
+    return _bridge_post("/labels", payload)
+
+
+def delete_label(label_id: str) -> tuple[bool, dict[str, Any] | str]:
+    return _bridge_post("/labels", {"action": "delete", "label_id": label_id})
+
+
+def set_chat_label(chat_jid: str, label_id: str, labeled: bool) -> tuple[bool, dict[str, Any] | str]:
+    return _bridge_post("/labels/chat", {"chat_jid": chat_jid, "label_id": label_id, "labeled": labeled})

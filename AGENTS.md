@@ -113,7 +113,8 @@ When adding a new env var: document it here, in `README.md`, and in `.env.exampl
 4. **History sync** is controlled by the *primary* device (the phone). The bridge can request more at pair time (see the `--full-history-pair` flag) or for a single chat at runtime (`POST /api/history`, see `history_ondemand.go`), but the phone has the final word.
 5. **`messages.db` is the source of truth for the MCP server.** Don't make the MCP server dependent on the bridge being up for *read* operations. The server opens it read-only via `_connect_messages_db()` and raises `FileNotFoundError` if it is missing rather than letting `sqlite3.connect` create an empty one; keep new read paths on that helper.
 6. **Outgoing calls are not visible to linked devices.** Don't promise features that depend on them.
-7. **Intel macOS dependency builds.** Patched `cryptography` is required even when Intel Mac wheels are unavailable. Source builds need Rust, OpenSSL, pkg-config, and Xcode Command Line Tools (see README prerequisites); do not restore the old `<49` pin to avoid installing build tools.
+7. **Chat labels = WhatsApp Lists.** Business labels and personal Lists are both `label_edit` / `label_jid` mutations in the `regular` app-state collection (`labels.go`). Personal custom Lists have `type=CUSTOM` and `predefinedID=0`, so "built-in" is decided by `type`/`isImmutable`, never `predefinedID`. DM associations are addressed by `@lid` on current phones; `target_jid` keeps the exact JID the phone used and `chat_jid` the normalised one. Full-sync event emission (`EmitAppStateEventsOnFullSync`) is enabled only during a requested `/api/labels/sync`, so pair-time contact sync keeps whatsmeow's default path. On `mismatching LTHash` the sync falls back to a fatal-recovery request to the phone.
+8. **Intel macOS dependency builds.** Patched `cryptography` is required even when Intel Mac wheels are unavailable. Source builds need Rust, OpenSSL, pkg-config, and Xcode Command Line Tools (see README prerequisites); do not restore the old `<49` pin to avoid installing build tools.
 
 ## Where to make changes
 
@@ -123,6 +124,7 @@ When adding a new env var: document it here, in `README.md`, and in `.env.exampl
 | Change DB queries / data conversion | `whatsapp-mcp-server/whatsapp.py` |
 | Change bridge REST API or event handling | `whatsapp-bridge/main.go` |
 | Change webhook payload | `whatsapp-bridge/webhook.go` |
+| Change chat labels / Lists | `whatsapp-bridge/labels.go` (bridge), label section of `whatsapp-mcp-server/whatsapp.py` |
 | Change CI behavior | `.github/workflows/*.yml` |
 | Change release behavior | `release-please-config.json`, `.release-please-manifest.json` |
 
