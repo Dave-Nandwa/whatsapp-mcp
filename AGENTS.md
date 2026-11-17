@@ -6,9 +6,11 @@ This file is the single source of truth for "how to contribute here". `CLAUDE.md
 
 ## Repository
 
-- **Repo:** [`verygoodplugins/whatsapp-mcp`](https://github.com/verygoodplugins/whatsapp-mcp)
-- **Origin remote:** always `origin` (this fork). PRs, issues, and `gh` commands target this fork, not the upstream `lharries/whatsapp-mcp`.
-- **Default branch:** `main`. All PRs target `main`.
+- **Repo:** [`Dave-Nandwa/whatsapp-mcp`](https://github.com/Dave-Nandwa/whatsapp-mcp), an independently maintained fork of [`verygoodplugins/whatsapp-mcp`](https://github.com/verygoodplugins/whatsapp-mcp) (itself a fork of `lharries/whatsapp-mcp`).
+- **Remotes:** `origin` = `Dave-Nandwa/whatsapp-mcp`; `upstream` = `verygoodplugins/whatsapp-mcp`, fetch-only (push is disabled locally).
+- **Never contribute upstream.** All branches, PRs, issues, and `gh` commands target `Dave-Nandwa/whatsapp-mcp`. Pass `--repo Dave-Nandwa/whatsapp-mcp` to `gh`, because GitHub defaults a fork's PR base to its parent. Don't open PRs or issues on `verygoodplugins/whatsapp-mcp` or `lharries/whatsapp-mcp`.
+- **Pulling upstream fixes** is fine: `git fetch upstream && git merge upstream/main`.
+- **Default branch:** `main`. All PRs target `main` on `Dave-Nandwa/whatsapp-mcp`.
 - **Releases:** automated via [release-please](https://github.com/googleapis/release-please) — do **not** hand-edit `CHANGELOG.md` or version numbers.
 
 ## Architecture (read first)
