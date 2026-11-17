@@ -280,6 +280,9 @@ func openWhatsmeowContactsDB(path string) (*sql.DB, error) {
 }
 
 func ensureMessageStoreSchema(db *sql.DB) error {
+	if _, err := db.Exec(labelSchema); err != nil {
+		return fmt.Errorf("failed to create label tables: %w", err)
+	}
 	if err := ensureColumn(db, "chats", "ephemeral_expiration", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return fmt.Errorf("failed to ensure chats.ephemeral_expiration column: %w", err)
 	}
@@ -2514,6 +2517,9 @@ func newRESTMux(client *whatsmeow.Client, messageStore *MessageStore, port int, 
 	// On-demand history sync endpoint (see history_ondemand.go)
 	registerHistoryEndpoint(mux, auth, client, messageStore)
 
+	// Chat labels / Lists (see labels.go)
+	registerLabelEndpoints(mux, auth, client, messageStore)
+
 	// Health check endpoint
 	mux.HandleFunc("/api/health", auth(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -3171,6 +3177,9 @@ func main() {
 			return
 		}
 		connection.handleEvent(evt)
+		if handleLabelEvent(client, messageStore, evt, logger) {
+			return
+		}
 		switch v := evt.(type) {
 		case *events.Message:
 			// Process regular messages
