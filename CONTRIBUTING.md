@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in `verygoodplugins/whatsapp-mcp`. This fork is small and intentionally narrow — please read [`ROADMAP.md`](./ROADMAP.md) and [`AGENTS.md`](./AGENTS.md) before opening a PR.
+Thanks for your interest in `Dave-Nandwa/whatsapp-mcp`. This fork is small and intentionally narrow — please read [`ROADMAP.md`](./ROADMAP.md) and [`AGENTS.md`](./AGENTS.md) before opening a PR.
 
 ## TL;DR
 
@@ -12,7 +12,7 @@ Thanks for your interest in `verygoodplugins/whatsapp-mcp`. This fork is small a
 ## Setup
 
 ```bash
-git clone https://github.com/verygoodplugins/whatsapp-mcp.git
+git clone https://github.com/Dave-Nandwa/whatsapp-mcp.git
 cd whatsapp-mcp
 
 # Bridge
@@ -35,7 +35,7 @@ uv run main.py
    - `chore:`, `docs:`, `ci:`, `refactor:`, `test:`, `perf:` → no version bump
    - `feat!:` / `fix!:` / `BREAKING CHANGE:` in body → major bump
 4. **Test locally** — `uv run pytest`, `golangci-lint run`, `go build ./...`.
-5. **Open a PR** to `main` against `verygoodplugins/whatsapp-mcp`. Use the PR template.
+5. **Open a PR** to `main` against `Dave-Nandwa/whatsapp-mcp`. Use the PR template.
 6. **Iterate** — address review comments. Squash isn't required; meaningful commit history is fine.
 7. **Merge** — maintainers merge once CI is green and at least one approving review is in. Release-please cuts the next release automatically.
 
@@ -73,7 +73,7 @@ uv run main.py
 
 ## Security
 
-If you find a vulnerability, **please don't open a public issue**. Email security@verygoodplugins.com (or open a private security advisory on GitHub) with details.
+If you find a vulnerability, **please don't open a public issue**. Open a [private security advisory](https://github.com/Dave-Nandwa/whatsapp-mcp/security/advisories/new) on GitHub with details.
 
 ## Credit
 

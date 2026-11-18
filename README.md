@@ -1,13 +1,13 @@
 # WhatsApp MCP Server
 
-[![CI](https://github.com/verygoodplugins/whatsapp-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/verygoodplugins/whatsapp-mcp/actions/workflows/ci.yml)
+[![CI](https://github.com/Dave-Nandwa/whatsapp-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Dave-Nandwa/whatsapp-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Go 1.26+](https://img.shields.io/badge/go-1.26+-00ADD8.svg)](https://go.dev/)
 
 A Model Context Protocol (MCP) server for WhatsApp, enabling Claude to read and send WhatsApp messages.
 
-> Originally created by [Luke Harries](https://github.com/lharries/whatsapp-mcp). Maintained by [Very Good Plugins](https://verygoodplugins.com/?utm_source=github).
+> Originally created by [Luke Harries](https://github.com/lharries/whatsapp-mcp). Maintained by [David Nandwa](https://github.com/Dave-Nandwa).
 
 <p align="center">
   <a href="https://github.com/user-attachments/assets/9475af1d-2369-4315-9ccc-823dba2c5c32"><strong>Watch the WhatsApp MCP demo video</strong></a>
@@ -58,7 +58,7 @@ Keep the patched dependency rather than restoring the old vulnerable version pin
 1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/verygoodplugins/whatsapp-mcp.git
+   git clone https://github.com/Dave-Nandwa/whatsapp-mcp.git
    cd whatsapp-mcp
    ```
 
@@ -1213,7 +1213,6 @@ And to Luke for creating the original project. See [CONTRIBUTING.md](CONTRIBUTIN
 
 ## Links
 
-- [Very Good Plugins](https://verygoodplugins.com/?utm_source=github)
 - [MCP Specification](https://modelcontextprotocol.io/)
 - [whatsmeow](https://github.com/tulir/whatsmeow) - WhatsApp Web API library for Go
 - [FastMCP](https://github.com/jlowin/fastmcp) - Fast Model Context Protocol implementation
